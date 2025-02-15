@@ -1,30 +1,41 @@
 import itertools
+import warnings
 
 import numpy as np
 import pandas as pd
 import scipy.stats
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
+from lifelines import CoxPHFitter
 from tqdm import tqdm
 
 from shears._util import fdr_correction, process_map
 
 
-def _test_cell(formula, df):
-    mod = smf.glm(formula, data=df, family=sm.families.Binomial())
+def _test_cell(formula, df, family="binomial"): #!! TODO: also assign "gaussian" now it always calls "binomial" ... !!!
+    mod = smf.glm(formula, data=df, family=sm.families.Binomial() if family == "binomial" else sm.families.Gaussian())
     res = mod.fit()
     return res.pvalues["cell_weight"], res.params["cell_weight"]
+
+def _test_cell_cox(formula, df):
+    warnings.filterwarnings("ignore")
+    cph = CoxPHFitter()
+    cph.fit(df, duration_col="OS_Time", event_col="OS_Status", formula=formula)
+    return cph.summary.loc["cell_weight", "p"], cph.summary.loc["cell_weight", "coef"]
 
 
 def shears(
     adata_sc,
     adata_bulk,
     *,
-    dep_var,
+    dep_var="",
     covariate_str="",
     inplace=True,
     cell_weights_key="cell_weights",
     key_added="shears",
+    family="binomial",
+    duration_col="OS_time",
+    event_col="OS_status",
     n_jobs=None,
 ):
     """
@@ -36,11 +47,20 @@ def shears(
     ----------
     covariate_str
         covariates to add, e.g. `+ age + C(gender)`
+    family
+        model family: 'binomial', 'gaussian', or 'cox'.
     """
-    formula = f"{dep_var} ~ cell_weight {covariate_str}"
-    keep_cols = [c for c in adata_bulk.obs.columns if c in dep_var + covariate_str]
+    if family == "cox":
+        formula = f"cell_weight {covariate_str}"
+        keep_cols = [c for c in adata_bulk.obs.columns if c in duration_col + event_col + covariate_str]
+    else:
+        formula = f"{dep_var} ~ cell_weight {covariate_str}"
+        keep_cols = [c for c in adata_bulk.obs.columns if c in dep_var + covariate_str]
+        
     assert "cell_weight" not in keep_cols, "cell_weight is a reserved column name"
     bulk_obs = adata_bulk.obs.loc[:, keep_cols].copy()
+    # TODO once I get family="gaussian" to work no need to rename columns but use provided colnames in fun!
+    bulk_obs = bulk_obs.rename(columns={duration_col: "OS_Time", event_col: "OS_Status"})
 
     print(formula)
 
@@ -50,8 +70,13 @@ def shears(
             tmp_df["cell_weight"] = adata_sc.obsm[cell_weights_key].loc[c, adata_bulk.obs_names]
             yield tmp_df
 
+    if family == "cox":
+        test_func = _test_cell_cox
+    else:
+        test_func = _test_cell
+
     res = process_map(
-        _test_cell,
+        test_func,
         itertools.repeat(formula),
         _df_iter(),
         total=adata_sc.shape[0],
