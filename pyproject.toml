@@ -23,6 +23,7 @@ dependencies = [
     "tqdm",
     "scikit-learn",
     "statsmodels",
+    "lifelines",
     "scanpy",
 ]
 
