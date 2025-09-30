@@ -1,4 +1,5 @@
 # Configuration file for the Sphinx documentation builder.
+
 # This file only contains a selection of the most common options. For a full
 # list see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
@@ -35,7 +36,7 @@ needs_sphinx = "4.0"
 
 html_context = {
     "display_github": True,  # Integrate GitHub
-    "github_user": "icbi-lab",
+    "github_user": "grst",
     "github_repo": project_name,
     "github_version": "main",
     "conf_py_path": "/docs/",
